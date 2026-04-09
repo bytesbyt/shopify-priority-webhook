@@ -1,0 +1,7 @@
+{
+    "functions": {
+      "api/shopify-orders.js": {
+        "maxDuration": 10
+      }
+    }
+  }
