@@ -6,16 +6,12 @@ function verifyShopifyWebhook(rawBody, signature, secret) {
     .update(rawBody, "utf8")
     .digest("base64");
 
-  console.log("Shopify signature:", signature);
+  console.log("Signature exists:", !!signature);
+  console.log("Signature length:", signature ? signature.length : 0);
   console.log("Calculated digest:", digest);
   console.log("Digest matches:", signature === digest);
 
-  if (!signature) return false;
-
-  return crypto.timingSafeEqual(
-    Buffer.from(digest),
-    Buffer.from(signature)
-  );
+  return !!signature && digest === signature;
 }
 
 async function readRawBody(req) {
@@ -32,19 +28,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
-    const signature = req.headers["x-shopify-hmac-sha256"];
-
-    console.log("Content-Type:", req.headers["content-type"]);
-    console.log("Shopify topic:", req.headers["x-shopify-topic"]);
-    console.log("Shopify shop:", req.headers["x-shopify-shop-domain"]);
-    console.log("Secret exists:", !!secret);
-    console.log("Signature exists:", !!signature);
-
     const rawBody = await readRawBody(req);
+    const signature = req.headers["x-shopify-hmac-sha256"];
+    const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
 
+    console.log("Secret exists:", !!secret);
     console.log("Raw body length:", rawBody.length);
-    console.log("Raw body preview:", rawBody.slice(0, 300));
+    console.log("Raw body first 200 chars:", rawBody.slice(0, 200));
 
     if (!secret) {
       return res.status(500).json({ error: "Missing SHOPIFY_WEBHOOK_SECRET" });
