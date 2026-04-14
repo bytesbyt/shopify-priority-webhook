@@ -33,6 +33,8 @@ export default async function handler(req, res) {
     const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
 
     console.log("Secret exists:", !!secret);
+    console.log("Secret length:", secret ? secret.length : 0);
+    console.log("Secret preview:", secret ? `${secret.slice(0, 4)}...${secret.slice(-4)}` : "none");
     console.log("Raw body length:", rawBody.length);
     console.log("Raw body first 200 chars:", rawBody.slice(0, 200));
 
