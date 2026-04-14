@@ -145,10 +145,20 @@ function verifyShopifyWebhook(rawBody, signature, secret) {
     .update(rawBody, "utf8")
     .digest("base64");
 
+  if (!signature) return false;
+
   return crypto.timingSafeEqual(
     Buffer.from(digest),
-    Buffer.from(signature || "")
+    Buffer.from(signature)
   );
+}
+
+async function readRawBody(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 export default async function handler(req, res) {
@@ -157,11 +167,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const rawBody =
-      typeof req.body === "string"
-        ? req.body
-        : JSON.stringify(req.body);
-
+    const rawBody = await readRawBody(req);
     const signature = req.headers["x-shopify-hmac-sha256"];
     const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
 
@@ -170,10 +176,11 @@ export default async function handler(req, res) {
     }
 
     if (!verifyShopifyWebhook(rawBody, signature, secret)) {
+      console.error("Invalid webhook signature");
       return res.status(401).json({ error: "Invalid webhook signature" });
     }
 
-    const order = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    const order = JSON.parse(rawBody);
     const payload = buildPriorityPayload(order);
 
     const priorityUrl = process.env.PRIORITY_URL;
