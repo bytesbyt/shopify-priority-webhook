@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import axios from "axios";
 
 function verifyShopifyWebhook(rawBody, signature, secret) {
   const digest = crypto
@@ -6,12 +7,16 @@ function verifyShopifyWebhook(rawBody, signature, secret) {
     .update(rawBody, "utf8")
     .digest("base64");
 
-  console.log("Signature exists:", !!signature);
-  console.log("Signature length:", signature ? signature.length : 0);
-  console.log("Calculated digest:", digest);
-  console.log("Digest matches:", signature === digest);
+  if (!signature) return false;
 
-  return !!signature && digest === signature;
+  const digestBuffer = Buffer.from(digest, "utf8");
+  const signatureBuffer = Buffer.from(signature, "utf8");
+
+  if (digestBuffer.length !== signatureBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(digestBuffer, signatureBuffer);
 }
 
 async function readRawBody(req) {
@@ -31,24 +36,59 @@ export default async function handler(req, res) {
     const rawBody = await readRawBody(req);
     const signature = req.headers["x-shopify-hmac-sha256"];
     const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
-
-    console.log("Secret exists:", !!secret);
-    console.log("Secret length:", secret ? secret.length : 0);
-    console.log("Secret preview:", secret ? `${secret.slice(0, 4)}...${secret.slice(-4)}` : "none");
-    console.log("Raw body length:", rawBody.length);
-    console.log("Raw body first 200 chars:", rawBody.slice(0, 200));
+    const priorityUrl = process.env.PRIORITY_URL;
+    const priorityUser = process.env.PRIORITY_USER;
+    const priorityPass = process.env.PRIORITY_PASS;
 
     if (!secret) {
       return res.status(500).json({ error: "Missing SHOPIFY_WEBHOOK_SECRET" });
+    }
+    if (!priorityUrl) {
+      return res.status(500).json({ error: "Missing PRIORITY_URL" });
     }
 
     if (!verifyShopifyWebhook(rawBody, signature, secret)) {
       return res.status(401).json({ error: "Invalid webhook signature" });
     }
 
-    return res.status(200).json({ ok: true });
+    let order;
+    try {
+      order = JSON.parse(rawBody);
+    } catch {
+      return res.status(400).json({ error: "Invalid JSON body" });
+    }
+
+    const axiosConfig = {
+      headers: { "Content-Type": "application/json" },
+      timeout: 10000
+    };
+
+    if (priorityUser && priorityPass) {
+      axiosConfig.auth = {
+        username: priorityUser,
+        password: priorityPass
+      };
+    }
+
+    const response = await axios.post(priorityUrl, order, axiosConfig);
+    console.log("Forwarded Shopify order", {
+      shopifyOrderId: order?.id ?? null,
+      priorityStatus: response.status
+    });
+
+    return res.status(200).json({
+      ok: true,
+      forwarded: true,
+      priorityStatus: response.status
+    });
   } catch (error) {
-    console.error("Webhook error:", error.message);
-    return res.status(500).json({ error: error.message });
+    console.error("Webhook forward error:", {
+      message: error?.message,
+      status: error?.response?.status ?? null
+    });
+    return res.status(500).json({
+      error: "Failed to process webhook",
+      details: error?.response?.data || error?.message
+    });
   }
 }
